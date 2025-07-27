@@ -1,0 +1,4 @@
+#include "kernels/naive.cu"
+#include "kernels/smem_block.cu"
+#include "kernels/warp_tiling_1d.cu"
+#include "kernels/warp_tiling_2d.cu"
