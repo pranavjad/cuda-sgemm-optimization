@@ -57,7 +57,7 @@ __global__ void sgemm_1d_warp_tiling(int M, int N, int K, float alpha, const flo
 
     for (int i = 0; i < TM; i++) {
         // we want the (thread_row_C * TM + i)th row of C.
-        // This is because each thread handles TM rows so we have to multiply 
+        // This is because each thread handles TM rows so we have to multiply by TM
         C_ptr[(thread_row_C * TM + i) * N + thread_col_C] = alpha * tmp[i] + beta * C_ptr[(thread_row_C * TM + i) * N + thread_col_C];
     }
 }

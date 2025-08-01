@@ -58,6 +58,23 @@ void launch_sgemm_2d_warp_tiling(int M, int N, int K, float alpha, float* d_A, f
     std::cout << "Time taken for device: " << device_duration.count() << " seconds" << std::endl;
 }
 
+void launch_sgemm_2d_warp_tiling_vec(int M, int N, int K, float alpha, float* d_A, float* d_B, float beta, float* d_C) {
+    const uint BM = 128;
+    const uint BN = 128;
+    const uint BK = 8;
+    const uint TM = 8;
+    const uint TN = 8;
+    dim3 grid(CEIL_DIV(N, BN), CEIL_DIV(M, BM));
+    dim3 block((BM * BN) / (TM * TN));
+
+    auto device_start = std::chrono::high_resolution_clock::now();
+    sgemm_2d_warp_tiling_vec<<<grid, block>>>(M, N, K, alpha, d_A, d_B, beta, d_C);
+    cudaDeviceSynchronize();
+    auto device_end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> device_duration = device_end - device_start;
+    std::cout << "Time taken for device: " << device_duration.count() << " seconds" << std::endl;
+}
+
 
 
 int main() {
@@ -94,7 +111,7 @@ int main() {
     cudaMemcpy(d_C, C_device.data(), M * N * sizeof(float), cudaMemcpyHostToDevice);
 
     // launch
-    launch_sgemm_2d_warp_tiling(M, N, K, alpha, d_A, d_B, beta, d_C);
+    launch_sgemm_2d_warp_tiling_vec(M, N, K, alpha, d_A, d_B, beta, d_C);
 
     // Copy kernel result back to host before cuBLAS overwrites it
     cudaMemcpy(C_device.data(), d_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);

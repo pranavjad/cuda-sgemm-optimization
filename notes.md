@@ -33,6 +33,7 @@ naive.cu coalesced: 0.0385s
 smem_block.cu: 0.0227s
 warp_tiling_1d.cu: 0.0247s
 warp_tiling_2d.cu: 0.0165s
+warp_tiling_2d_vec.cu: 0.0148s
 
 ## Notes
 [4090 specs](https://images.nvidia.com/aem-dam/Solutions/geforce/ada/nvidia-ada-gpu-architecture.pdf)
@@ -170,6 +171,37 @@ into SMEM. We slide this block horizontally in A, and vertically in B.
 - float tmp_N[TM] - row from B block
 3. Then in the inner loop we loop over BK the dot product dimension, then we load tmp_A and tmp_B and
 accumulate the outer product of tmp_A and tmp_B into thread_results.
+Here is the warp state statistics now:
+```
+Warp State (All Cycles)
+Metric,Current
+Stall Not Selected,1.63
+Stall MIO Throttle,1.29
+Selected,1.00
+Stall Dispatch Stall,0.86
+Stall Short Scoreboard,0.64
+Stall Barrier,0.54
+Stall Long Scoreboard,0.37
+Stall Wait,0.27
+Stall Math Pipe Throttle,0.14
+```
+As you can see, much less MIO Throttling. And now not selected is higher even.
+### Kernel 6 - Vectorizing loads to A
+Currently, when we load the column from A_shared for the outer product it looks like this:
+```c
+// Load column from A shared memory
+for (int i = 0; i < TM; i++) {
+    tmp_A[i] = A_shared[(thread_row_C * TM + i) * BK + dot_idx];
+}
+// Load row from B shared memory
+for (int i = 0; i < TN; i++) {
+    tmp_B[i] = B_shared[dot_idx * BN + (thread_col_C * TN + i)];
+}
+```
+The tmp_A loading leads to multiple LDS SASS instructions, while the tmp_B loading is just
+two LDS.128 instructions. Ideally we would like the tmp_A loading to use vectorized loads
+as well. We can do this by transposing A in shared memory so consecutive positions in memory
+are being loaded in this loop.
 
 
 
