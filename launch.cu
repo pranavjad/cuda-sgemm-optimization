@@ -90,7 +90,7 @@ void verify_and_benchmark(int kernel_idx, int M, int N, int K, float alpha, floa
     // verify correctness
     for (int i = 0; i < M * N; i++) {
         if (fabsf(C_device[i] - C_cublas[i]) > 1e-6) {
-            std::cerr << "Error at index " << i << ": " << C_device[i] << " != " << C_cublas[i] << std::endl;
+            std::cout << "Error at index " << i << ": " << C_device[i] << " != " << C_cublas[i] << std::endl;
         }
     }
 
@@ -99,11 +99,14 @@ void verify_and_benchmark(int kernel_idx, int M, int N, int K, float alpha, floa
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
     cudaEventRecord(start);
-    launch_sgemm(kernel_idx, M, N, K, alpha, d_A, d_B, beta, d_C);
+    for (int i = 0; i < 10; i++) {
+        launch_sgemm(kernel_idx, M, N, K, alpha, d_A, d_B, beta, d_C);
+    }
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
-    float elapsed_time;
+    float elapsed_time = 0.0f;
     cudaEventElapsedTime(&elapsed_time, start, stop);
+    elapsed_time /= 10.0f;
     std::cout << "Time taken for kernel " << kernel_idx << ": " << elapsed_time << " ms" << std::endl;
     const double gflops = (2 * M * N * K + M * N) / (elapsed_time * 1e3);
     std::cout << "GFLOP/s: " << gflops << std::endl;
@@ -118,7 +121,12 @@ void verify_and_benchmark(int kernel_idx, int M, int N, int K, float alpha, floa
 }
 
 
-int main() {
+int main(int argc, char* argv[]) {
+    if (argc != 2) {
+        std::cout << "Usage: " << argv[0] << " <kernel_idx>" << std::endl;
+        return 1;
+    }
+    int kernel_idx = atoi(argv[1]);
     int M = 4096;
     int N = 4096;
     int K = 4096;
@@ -138,7 +146,7 @@ int main() {
         C[i] = (float)rand() / RAND_MAX;
     }
     
-    verify_and_benchmark(1, M, N, K, alpha, beta, A.data(), B.data(), C.data());
+    verify_and_benchmark(kernel_idx, M, N, K, alpha, beta, A.data(), B.data(), C.data());
 }
 
 
