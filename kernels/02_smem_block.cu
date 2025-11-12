@@ -1,5 +1,8 @@
 #define BLOCKSIZE 32
 
+#define CEIL_DIV(M, N) (((M) + (N) - 1) / (N))
+
+namespace k2 {
 // shared memory cache-blocking
 __global__ void sgemm_smem_block(int M, int N, int K, float alpha, const float *A, const float *B, float beta, float *C) {
     const uint block_row = blockIdx.x;
@@ -31,3 +34,12 @@ __global__ void sgemm_smem_block(int M, int N, int K, float alpha, const float *
     }
     C_ptr[thread_row * N + thread_col] = alpha * tmp + beta * C_ptr[thread_row * N + thread_col];
 }
+
+void launch_sgemm_smem_block(int M, int N, int K, float alpha, float* d_A, float* d_B, float beta, float* d_C) {
+    dim3 grid(CEIL_DIV(M, 32), CEIL_DIV(N, 32));
+    dim3 block(32 * 32);
+
+    sgemm_smem_block<<<grid, block>>>(M, N, K, alpha, d_A, d_B, beta, d_C);
+}
+
+} // namespace k2

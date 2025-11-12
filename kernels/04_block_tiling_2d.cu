@@ -1,4 +1,5 @@
-__global__ void sgemm_2d_warp_tiling(int M, int N, int K, float alpha, const float *A, const float *B, float beta, float *C) {
+namespace k4 {
+__global__ void sgemm_2d_block_tiling(int M, int N, int K, float alpha, const float *A, const float *B, float beta, float *C) {
     const int BM = 64;
     const int BN = 64;
     const int BK = 8;
@@ -81,5 +82,14 @@ __global__ void sgemm_2d_warp_tiling(int M, int N, int K, float alpha, const flo
             C_ptr[row * N + col] = alpha * thread_results[i * TN + j] + beta * C_ptr[row * N + col];
         }
     }
+
+} // namespace k4
+
+void launch_sgemm_2d_block_tiling(int M, int N, int K, float alpha, float* d_A, float* d_B, float beta, float* d_C) {
+    dim3 grid(CEIL_DIV(N, 64), CEIL_DIV(M, 64));
+    dim3 block(8 * 8);
+
+    sgemm_2d_block_tiling<<<grid, block>>>(M, N, K, alpha, d_A, d_B, beta, d_C);
+}
 
 }

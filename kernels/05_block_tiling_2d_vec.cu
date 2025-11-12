@@ -1,4 +1,5 @@
-__global__ void sgemm_2d_warp_tiling_vec(int M, int N, int K, float alpha, float *A, float *B, float beta, float *C) {
+namespace k5 {
+__global__ void sgemm_2d_block_tiling_vec(int M, int N, int K, float alpha, float *A, float *B, float beta, float *C) {
     const int BM = 128;
     const int BN = 128;
     const int BK = 8;
@@ -105,3 +106,17 @@ __global__ void sgemm_2d_warp_tiling_vec(int M, int N, int K, float alpha, float
 
 
 }
+
+void launch_sgemm_2d_block_tiling_vec(int M, int N, int K, float alpha, float* d_A, float* d_B, float beta, float* d_C) {
+    const uint BM = 128;
+    const uint BN = 128;
+    const uint BK = 8;
+    const uint TM = 8;
+    const uint TN = 8;
+    dim3 grid(CEIL_DIV(N, BN), CEIL_DIV(M, BM));
+    dim3 block((BM * BN) / (TM * TN));
+
+    sgemm_2d_block_tiling_vec<<<grid, block>>>(M, N, K, alpha, d_A, d_B, beta, d_C);
+}
+
+} // namespace k5

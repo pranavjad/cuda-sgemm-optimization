@@ -1,7 +1,11 @@
 #include <assert.h>
 
+#define CEIL_DIV(M, N) (((M) + (N) - 1) / (N))
+
+namespace k3 {
+
 // 1d warptiling
-__global__ void sgemm_1d_warp_tiling(int M, int N, int K, float alpha, const float *A, const float *B, float beta, float *C) {
+__global__ void sgemm_1d_block_tiling(int M, int N, int K, float alpha, const float *A, const float *B, float beta, float *C) {
     // block from A = (BM, BK)
     // block from B = (BK, BN)
     // each thread calculates TM rows of one thread_col col
@@ -49,8 +53,14 @@ __global__ void sgemm_1d_warp_tiling(int M, int N, int K, float alpha, const flo
         for (int dot_idx = 0; dot_idx < BK; dot_idx++) {
             float b_col_elem = B_shared[dot_idx * BN + thread_col_C];
             for (int out_row = 0; out_row < TM; out_row++) {
+                /*
+                Each block is responsible for a 64x64 tile of C.
+                Each thread is responsible for an 8x1 tile of C.
+                thread_row_C = [0, 1, ..., 7]
+                thread_col_C = [0, 1, ..., 63]
+                */
                 tmp[out_row] += A_shared[(thread_row_C * TM + out_row) * BK + dot_idx] * b_col_elem;
-            } 
+            }
         }
         __syncthreads();
     }
@@ -61,4 +71,13 @@ __global__ void sgemm_1d_warp_tiling(int M, int N, int K, float alpha, const flo
         C_ptr[(thread_row_C * TM + i) * N + thread_col_C] = alpha * tmp[i] + beta * C_ptr[(thread_row_C * TM + i) * N + thread_col_C];
     }
 }
+
+void launch_sgemm_1d_block_tiling(int M, int N, int K, float alpha, float* d_A, float* d_B, float beta, float* d_C) {
+    dim3 grid(CEIL_DIV(N, 64), CEIL_DIV(M, 64));
+    dim3 block(8 * 64);
+
+    sgemm_1d_block_tiling<<<grid, block>>>(M, N, K, alpha, d_A, d_B, beta, d_C);
+}
+
+} // namespace k3
 

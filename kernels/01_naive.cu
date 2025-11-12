@@ -1,4 +1,6 @@
 #define BLOCKSIZE 32
+#define CEIL_DIV(M, N) (((M) + (N) - 1) / (N))
+namespace k1 {
 
 // naive
 __global__ void sgemm_naive(int M, int N, int K, float alpha, const float *A, const float *B, float beta, float *C) {
@@ -17,6 +19,11 @@ __global__ void sgemm_naive(int M, int N, int K, float alpha, const float *A, co
 
 // naive with coalesced memory access
 __global__ void sgemm_naive_coalesced(int M, int N, int K, float alpha, const float *A, const float *B, float beta, float *C) {
+    /*
+    Before, thread 0 and 1 would access consecutive rows in A but the same column in B.
+    Now, thread 0 and 1 access the same row in A but consecutive columns in B.
+    This is much better because the memory access is coalesced.
+    */
     const uint x = blockIdx.x * BLOCKSIZE + (threadIdx.x / BLOCKSIZE);
     const uint y = blockIdx.y * BLOCKSIZE + (threadIdx.x % BLOCKSIZE);
 
@@ -29,3 +36,19 @@ __global__ void sgemm_naive_coalesced(int M, int N, int K, float alpha, const fl
         C[x * N + y] = alpha * tmp + beta * C[x * N + y];
     }
 }
+
+void launch_sgemm_naive(int M, int N, int K, float alpha, float* d_A, float* d_B, float beta, float* d_C) {
+    dim3 grid(CEIL_DIV(M, 32), CEIL_DIV(N, 32));
+    dim3 block(32, 32);
+
+    sgemm_naive<<<grid, block>>>(M, N, K, alpha, d_A, d_B, beta, d_C);
+}
+
+void launch_sgemm_naive_coalesced(int M, int N, int K, float alpha, float* d_A, float* d_B, float beta, float* d_C) {
+    dim3 grid(CEIL_DIV(M, 32), CEIL_DIV(N, 32));
+    dim3 block(32, 32);
+
+    sgemm_naive_coalesced<<<grid, block>>>(M, N, K, alpha, d_A, d_B, beta, d_C);
+}
+
+} // namespace k1
