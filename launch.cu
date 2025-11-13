@@ -122,11 +122,10 @@ void verify_and_benchmark(int kernel_idx, int M, int N, int K, float alpha, floa
 
 
 int main(int argc, char* argv[]) {
-    if (argc != 2) {
-        std::cout << "Usage: " << argv[0] << " <kernel_idx>" << std::endl;
-        return 1;
+    int kernel_idx = -1;
+    if (argc == 2) {
+        kernel_idx = atoi(argv[1]);
     }
-    int kernel_idx = atoi(argv[1]);
     int M = 4096;
     int N = 4096;
     int K = 4096;
@@ -145,8 +144,13 @@ int main(int argc, char* argv[]) {
     for (int i = 0; i < M * N; i++) {
         C[i] = (float)rand() / RAND_MAX;
     }
-    
-    verify_and_benchmark(kernel_idx, M, N, K, alpha, beta, A.data(), B.data(), C.data());
+    if (kernel_idx == -1) {
+        for (int i = 1; i <= 6; i++) {
+            verify_and_benchmark(i, M, N, K, alpha, beta, A.data(), B.data(), C.data());
+        }
+    } else {
+        verify_and_benchmark(kernel_idx, M, N, K, alpha, beta, A.data(), B.data(), C.data());
+    }
 }
 
 
