@@ -73,7 +73,7 @@ available warp. That is why it's a good idea to have a lot of available warps to
 "Before the Volta architecture, it used to be the case that all threads of a warp were fed from the same instruction stream. On a branch, the threads that didn’t take the branch were inactived using the so-called active mask. However, since Volta, it’s no longer a good idea to rely on this ‘warp-synchronous’ behaviour, as instructions from different branches may be interleaved even for the same threads within a warp."
 
 Global memory coalescing - sequential accesses in global memory by threads in the same warp
-can be coalesced into one transaction. The largest transaction is 128B, so if all threads
+can be coalesced into one transaction. The largest transaction is 128 bytes, so if all threads
 in a warp access floats that map to a single chunk of 32 floats in memory, that is 1 transaction.
 
 In `naive.cu` we assign x and y like this:
