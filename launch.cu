@@ -108,7 +108,8 @@ void verify_and_benchmark(int kernel_idx, int M, int N, int K, float alpha, floa
     cudaEventElapsedTime(&elapsed_time, start, stop);
     elapsed_time /= 10.0f;
     std::cout << "Time taken for kernel " << kernel_idx << ": " << elapsed_time << " ms" << std::endl;
-    const double gflops = (2 * M * N * K + M * N) / (elapsed_time * 1e3);
+    const double flop_count = 2.0 * static_cast<double>(M) * N * K + static_cast<double>(M) * N;
+    const double gflops = flop_count / (elapsed_time * 1e6);
     std::cout << "GFLOP/s: " << gflops << std::endl;
     
     // cleanup
@@ -152,5 +153,4 @@ int main(int argc, char* argv[]) {
         verify_and_benchmark(kernel_idx, M, N, K, alpha, beta, A.data(), B.data(), C.data());
     }
 }
-
 

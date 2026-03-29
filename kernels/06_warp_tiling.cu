@@ -4,13 +4,13 @@ const uint WARPSIZE = 32;
 const uint NUM_THREADS = 128;
 __global__ void __launch_bounds__(NUM_THREADS)
 sgemm_warp_tiling(int M, int N, int K, float alpha, float *A, float *B, float beta, float *C) {
-    const uint BM = 64;
+    const uint BM = 128;
     const uint BN = 128;
-    const uint BK = 8;
-    const uint WM = 32;
+    const uint BK = 16;
+    const uint WM = 64;
     const uint WN = 64;
-    const uint WNITER = 2; // # of warp subtiles along horizontal dim of warptile
-    const uint TM = 4;
+    const uint WNITER = 4; // # of warp subtiles along horizontal dim of warptile
+    const uint TM = 8;
     const uint TN = 4;
 
     // block tile index
@@ -127,10 +127,10 @@ sgemm_warp_tiling(int M, int N, int K, float alpha, float *A, float *B, float be
 }
 
 void launch_sgemm_warp_tiling(int M, int N, int K, float alpha, float* d_A, float* d_B, float beta, float* d_C) {
-    const uint BM = 64;
+    const uint BM = 128;
     const uint BN = 128;
-    const uint BK = 8;
-    const uint TM = 4;
+    const uint BK = 16;
+    const uint TM = 8;
     const uint TN = 4;
     dim3 grid(CEIL_DIV(N, BN), CEIL_DIV(M, BM));
     dim3 block(128);

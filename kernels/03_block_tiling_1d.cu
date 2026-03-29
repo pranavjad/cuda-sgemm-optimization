@@ -14,8 +14,8 @@ __global__ void sgemm_1d_block_tiling(int M, int N, int K, float alpha, const fl
     const int BK = 8;
     const int TM = 8;
 
-    const uint block_row = blockIdx.x;
-    const uint block_col = blockIdx.y;
+    const uint block_row = blockIdx.y;
+    const uint block_col = blockIdx.x;
 
     const uint totalResultsBlocktile = BM * BN;
     const uint numThreadsBlocktile = totalResultsBlocktile / TM;
@@ -80,4 +80,3 @@ void launch_sgemm_1d_block_tiling(int M, int N, int K, float alpha, float* d_A, 
 }
 
 } // namespace k3
-

@@ -10,8 +10,8 @@ __global__ void sgemm_2d_block_tiling_vec(int M, int N, int K, float alpha, floa
     const uint num_thread_blocktile = total_results_blocktile / (TM * TN);
     assert(num_thread_blocktile == blockDim.x);
     
-    const uint block_row = blockIdx.x;
-    const uint block_col = blockIdx.y;
+    const uint block_row = blockIdx.y;
+    const uint block_col = blockIdx.x;
 
     // thread row and col in the A block, B block. (each thread loads 4 values)
     const uint thread_row_A = threadIdx.x / (BK / 4);
