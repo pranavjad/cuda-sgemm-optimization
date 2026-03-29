@@ -225,6 +225,3 @@ each thread handles 4 threadtiles (one in each warp subtile)
 2. Loop over BK, loading chunks of the A block and B block from smem -> registers
 3. Compute the outer product of size TMxTN, 4 times (one for each warp subtile) 
 4. Write the results back to gmem.
-
-
-
