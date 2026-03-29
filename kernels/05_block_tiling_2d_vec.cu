@@ -13,7 +13,7 @@ __global__ void sgemm_2d_block_tiling_vec(int M, int N, int K, float alpha, floa
     const uint block_row = blockIdx.x;
     const uint block_col = blockIdx.y;
 
-    // thread row and col in the A block, B block.
+    // thread row and col in the A block, B block. (each thread loads 4 values)
     const uint thread_row_A = threadIdx.x / (BK / 4);
     const uint thread_col_A = threadIdx.x % (BK / 4);
 
@@ -41,7 +41,8 @@ __global__ void sgemm_2d_block_tiling_vec(int M, int N, int K, float alpha, floa
     float tmp_B[TN] = {0.0};
     
     for (int block_idx = 0; block_idx < K; block_idx += BK) {
-
+        
+        //// for block sizes
         // for (int ld_offset = 0; ld_offset < BM; ld_offset += stride_A) {
         //     float4 tmp = reinterpret_cast<float4 *>(&A_ptr[(thread_row_A + ld_offset) * K + thread_col_A * 4])[0];
         //     A_shared[(thread_col_A * 4 + 0) * BM + (thread_row_A + ld_offset)] = tmp.x;
@@ -55,11 +56,13 @@ __global__ void sgemm_2d_block_tiling_vec(int M, int N, int K, float alpha, floa
         //         reinterpret_cast<float4 *>(&B_ptr[(ld_offset + thread_row_B) * N + thread_col_B * 4])[0];
         // }
 
+        // in this case, we can be sure we have enough threads in the block to load the full shared tile without looping
+        // transpose A as we load in shared memory (becomes useful later)
         float4 tmp = reinterpret_cast<float4 *>(&A_ptr[(thread_row_A) * K + thread_col_A * 4])[0];
         A_shared[(thread_col_A * 4 + 0) * BM + (thread_row_A)] = tmp.x;
         A_shared[(thread_col_A * 4 + 1) * BM + (thread_row_A)] = tmp.y;
         A_shared[(thread_col_A * 4 + 2) * BM + (thread_row_A)] = tmp.z;
-        A_shared[(thread_col_A * 4 + 3) * BM + (thread_row_A )] = tmp.w;
+        A_shared[(thread_col_A * 4 + 3) * BM + (thread_row_A)] = tmp.w;
 
         reinterpret_cast<float4 *>(&B_shared[(thread_row_B) * BN + thread_col_B * 4])[0] = 
             reinterpret_cast<float4 *>(&B_ptr[(thread_row_B) * N + thread_col_B * 4])[0];
@@ -70,7 +73,7 @@ __global__ void sgemm_2d_block_tiling_vec(int M, int N, int K, float alpha, floa
 
         // Compute partial results for this tile
         for (int dot_idx = 0; dot_idx < BK; dot_idx++) {
-            // Load column from A shared memory
+            // Load column from A shared memory (but A is transposed in smem)
             for (int i = 0; i < TM; i++) {
                 tmp_A[i] = A_shared[dot_idx * BM + (thread_row_C * TM + i)];
             }
@@ -89,7 +92,7 @@ __global__ void sgemm_2d_block_tiling_vec(int M, int N, int K, float alpha, floa
         __syncthreads();
     }
 
-    // Write results back to global memory
+    // Write results back to global memory (vectorized)
     for (int i = 0; i < TM; i++) {
         for (int j = 0; j < TN; j += 4) {
             int row = thread_row_C * TM + i;

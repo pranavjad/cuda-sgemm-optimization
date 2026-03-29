@@ -95,7 +95,7 @@ Note that `threadIdx.x / BLOCKSIZE` is equivalent to `threadIdx.y` with 2d threa
 and `threadIdx.x % BLOCKSIZE` is equivalent to `threadIdx.x`.
 
 ### Kernel 3 - shared memory cache-blocking
-Each block has access to shared memory that it's thread can use to communicate with each other.
+Each block has access to shared memory that it's threads can use to communicate with each other.
 Each block in the 4090 has 128KB of shared memory.
 With this improvement, each thread still calculates one element of the output C.
 We load chunks of A and B into shared memory, do as much work as we can and then do the next one.
@@ -124,7 +124,7 @@ Stall Not Selected,3.43
 Stall Wait,1.83
 Selected,1.00
 ```
-We can see that MIO Throttle is the high meaning our kernel is frequently waitinf for shared memory instructions. Another interesting point is that we have a decent amount of Stall not selected which means that the warp was eligible to be scheduled, but a different one got scheduled instead. This means that occupancy isn't really an issue because we have many warps waiting.
+We can see that MIO Throttle is the high meaning our kernel is frequently waiting for shared memory instructions. Another interesting point is that we have a decent amount of Stall not selected which means that the warp was eligible to be scheduled, but a different one got scheduled instead. This means that occupancy isn't really an issue because we have many warps waiting.
 
 Arithmetic intensity: FLOPs/byte of memory loaded.
 - high AI = compute bound. We don't need much occupancy to hide memory access latency since each thread does so much computation.
@@ -136,7 +136,9 @@ If we have each thread compute more output elements in C, then we can rely more 
 This kernel is similar to the one above. We are going to have each block load
 a chunk from A and a chunk from B, and be responsible for calculating a chunk from C. The chunk from A will slide horizontally, and from B will slide vertically as before. However now instead of the chunks being square 32x32, they will have dimensions (BM, BK) for the block from A and (BK, BN) for the block from B.
 
-Each thread will now be resposible for calculating TM rows in one column of it's output block in C. Therefore each warp will calculate TMx32 chunk of the output block.
+Now each block is responsible for a 64x64 chunk in C. Each thread is responsible for an 8x1 stripe of those values.
+
+Each thread will now be resposible for calculating TM rows in one column of it's threadblock's output block in C. Therefore each warp will calculate TMx32 chunk of the output block.
 
 Let's look at the warp state statistics now:
 ```
@@ -202,6 +204,22 @@ The tmp_A loading leads to multiple LDS SASS instructions, while the tmp_B loadi
 two LDS.128 instructions. Ideally we would like the tmp_A loading to use vectorized loads
 as well. We can do this by transposing A in shared memory so consecutive positions in memory
 are being loaded in this loop.
+
+### Kernel 6 - warp tiling
+Now we explicitly express all levels of parallelism
+
+Tiling hierarchy
+- blocktiles: each block computes a tile of C (BM*BN)
+- warptiles: 4 warps compute one blocktile (WM*WN)
+- warp subtiles: warptiles are divided into 4 warp subtiles (WSUBM * WSUBN)
+4 warp subtiles are collectively handled by 1 warp! Each thread will touch all 4 subtiles.
+- threadtiles: warp subtiles are divided into 32 threadtiles (TM * TN)
+each thread handles 4 threadtiles (one in each warp subtile)
+
+1. Loop over K, loading blocks of A and B from gmem --> smem
+2. Loop over BK, loading chunks of the A block and B block from smem -> registers
+3. Compute the outer product of size TMxTN, 4 times (one for each warp subtile) 
+4. Write the results back to gmem.
 
 
 
