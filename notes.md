@@ -130,6 +130,11 @@ Arithmetic intensity: FLOPs/byte of memory loaded.
 - high AI = compute bound. We don't need much occupancy to hide memory access latency since each thread does so much computation.
 - low AI = memory bound. We need a lot of occupancy to hide memory access latency since each thread doesn't do much computation.
 
+In kernel 3, each issues loads for an entire row of A and col of B.
+When each thread calculates multiple values, it can use data already loaded from gmem to smem multiple times.
+For example, to calculate a partial 8x8 tile, we just need 16 values from A and B.
+Whereas for 1 partial, we need 1 value from a and 1 value from b. 1:2 vs 4:1.
+
 ### Kernel 4 - 1d blocktiling for multiple results per thread
 If we have each thread compute more output elements in C, then we can rely more on registers and less on SMEM.
 
