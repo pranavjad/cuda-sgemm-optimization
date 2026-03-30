@@ -15,16 +15,17 @@ namespace k7 {
 template <class BlockTiler,
           class AStride, class ASmemLayout, class AThreadLayout,
           class BStride, class BSmemLayout, class BThreadLayout,
-          class CStride, class CSmemLayout, class CThreadLayout,
+          class CStride, class CSmemLayout, class CThreadLayout
           >
 __global__ void sgemm_2d_block_tiling_cute(
     int M, int N, int K,
-    float alpha, const float *A, const float *B, float beta, float *C
+    float alpha, const float *A, const float *B, float beta, float *C,
     AStride A_strides, BStride B_strides, CStride C_strides,
     BlockTiler block_tiler,
-    ASmemLayout A_shared_layout, BSmemLayout B_shared_layout
+    ASmemLayout A_shared_layout, BSmemLayout B_shared_layout,
     AThreadLayout A_thread_layout, BThreadLayout B_thread_layout, CThreadLayout C_thread_layout
 ) {
+    using namespace cute;
     // create Tensors from data + Layout
     Tensor mA = make_tensor(make_gmem_ptr(A), make_shape(M, K), A_strides);
     Tensor mB = make_tensor(make_gmem_ptr(B), make_shape(K, N), B_strides);
@@ -92,12 +93,12 @@ __global__ void sgemm_2d_block_tiling_cute(
 
         // Compute partial results for this tile
         CUTE_UNROLL
-        for (int dot_idx = 0; dot_idx < size<1>(sA_to_r); dot_idx++) {
+        for (int k = 0; k < size<1>(sA_to_r); k++) {
             CUTE_UNROLL
             for (int i = 0; i < size<0>(thread_results); i++) {
                 CUTE_UNROLL
                 for (int j = 0; j < size<1>(thread_results); j++) {
-                    thread_results(i, j) += sA_to_r(i, k) * sB_to_r(k, j)
+                    thread_results(i, j) += sA_to_r(i, k) * sB_to_r(k, j);
                 }
             }
         }
@@ -110,13 +111,14 @@ __global__ void sgemm_2d_block_tiling_cute(
         gC_to_w(i) = alpha * thread_results(i) + beta * gC_to_w(i);
     }
 }
-}
+
 
 
 void launch_sgemm_2d_block_tiling_cute(
     int m, int n, int k,
     float alpha, float* d_A, float* d_B, float beta, float* d_C
 ) {
+    using namespace cute;
     // define problem shape
     auto M = int(m);
     auto N = int(n);
@@ -149,10 +151,12 @@ void launch_sgemm_2d_block_tiling_cute(
     dim3 block(8 * 8);
 
     sgemm_2d_block_tiling_cute<<<grid, block>>>(
-        problem_shape, alpha, dA, dB, beta, dC,
+        problem_shape, alpha, d_A, d_B, beta, d_C,
         A_strides, B_strides, C_strides,
         block_tiler,
         A_shared_layout, B_shared_layout,
         A_thread_layout, B_thread_layout, C_thread_layout
     );
+}
+
 } // namespace k7
