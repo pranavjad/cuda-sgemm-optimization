@@ -15,7 +15,7 @@ namespace k7 {
 template <class BlockTiler,
           class AStride, class ASmemLayout, class AThreadLayout,
           class BStride, class BSmemLayout, class BThreadLayout,
-          class CStride, class CSmemLayout, class CThreadLayout
+          class CStride, class CThreadLayout
           >
 __global__ void sgemm_2d_block_tiling_cute(
     int M, int N, int K,
@@ -123,12 +123,10 @@ void launch_sgemm_2d_block_tiling_cute(
     auto M = int(m);
     auto N = int(n);
     auto K = int(k);
-    auto problem_shape = make_shape(M, N, K);
-
     // define strides of A, B, C
-    auto A_strides = make_stride(K, _1);
-    auto B_strides = make_stride(N, _1);
-    auto C_strides = make_stride(N, _1);
+    auto A_strides = make_stride(K, Int<1>{});
+    auto B_strides = make_stride(N, Int<1>{});
+    auto C_strides = make_stride(N, Int<1>{});
 
     // define blocktile size
     auto BM = Int<64>{};
@@ -143,15 +141,15 @@ void launch_sgemm_2d_block_tiling_cute(
 
     // define thread layouts
     // maps coords in (BM, BK) --> thread index that loads it
-    auto A_thread_layout = make_layout(make_shape(8, 8));
-    auto B_thread_layout = make_layout(make_shape(8, 8));
-    auto C_thread_layout = make_layout(make_shape(8, 8));
+    auto A_thread_layout = make_layout(make_shape(Int<8>{}, Int<8>{}));
+    auto B_thread_layout = make_layout(make_shape(Int<8>{}, Int<8>{}));
+    auto C_thread_layout = make_layout(make_shape(Int<8>{}, Int<8>{}));
 
     dim3 grid(ceil_div(N, BN), ceil_div(M, BM));
     dim3 block(8 * 8);
 
     sgemm_2d_block_tiling_cute<<<grid, block>>>(
-        problem_shape, alpha, d_A, d_B, beta, d_C,
+        M, N, K, alpha, d_A, d_B, beta, d_C,
         A_strides, B_strides, C_strides,
         block_tiler,
         A_shared_layout, B_shared_layout,

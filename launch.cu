@@ -41,6 +41,7 @@ void launch_sgemm(int kernel_idx, int M, int N, int K, float alpha, float* d_A, 
             break;
         case 7:
             k7::launch_sgemm_2d_block_tiling_cute(M, N, K, alpha, d_A, d_B, beta, d_C);
+            break;
         default:
             std::cout << "Invalid kernel index" << std::endl;
             break;
@@ -93,6 +94,7 @@ void verify_and_benchmark(int kernel_idx, int M, int N, int K, float alpha, floa
     for (int i = 0; i < M * N; i++) {
         if (fabsf(C_device[i] - C_cublas[i]) > 1e-6) {
             std::cout << "Error at index " << i << ": " << C_device[i] << " != " << C_cublas[i] << std::endl;
+            break;
         }
     }
 
@@ -113,6 +115,7 @@ void verify_and_benchmark(int kernel_idx, int M, int N, int K, float alpha, floa
     const double flop_count = 2.0 * static_cast<double>(M) * N * K + static_cast<double>(M) * N;
     const double gflops = flop_count / (elapsed_time * 1e6);
     std::cout << "GFLOP/s: " << gflops << std::endl;
+    std::cout << "===" << std::endl;
     
     // cleanup
     cudaEventDestroy(start);
@@ -148,7 +151,7 @@ int main(int argc, char* argv[]) {
         C[i] = (float)rand() / RAND_MAX;
     }
     if (kernel_idx == -1) {
-        for (int i = 1; i <= 6; i++) {
+        for (int i = 1; i <= 7; i++) {
             verify_and_benchmark(i, M, N, K, alpha, beta, A.data(), B.data(), C.data());
         }
     } else {
