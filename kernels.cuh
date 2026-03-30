@@ -4,3 +4,4 @@
 #include "kernels/04_block_tiling_2d.cu"
 #include "kernels/05_block_tiling_2d_vec.cu"
 #include "kernels/06_warp_tiling.cu"
+#include "kernels/07_block_tiling_2d_cute.cu"

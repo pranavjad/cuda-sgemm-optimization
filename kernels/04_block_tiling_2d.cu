@@ -83,7 +83,7 @@ __global__ void sgemm_2d_block_tiling(int M, int N, int K, float alpha, const fl
         }
     }
 
-} // namespace k4
+}
 
 void launch_sgemm_2d_block_tiling(int M, int N, int K, float alpha, float* d_A, float* d_B, float beta, float* d_C) {
     dim3 grid(CEIL_DIV(N, 64), CEIL_DIV(M, 64));
@@ -92,4 +92,4 @@ void launch_sgemm_2d_block_tiling(int M, int N, int K, float alpha, float* d_A, 
     sgemm_2d_block_tiling<<<grid, block>>>(M, N, K, alpha, d_A, d_B, beta, d_C);
 }
 
-}
+} // namespace k4

@@ -39,6 +39,8 @@ void launch_sgemm(int kernel_idx, int M, int N, int K, float alpha, float* d_A, 
         case 6:
             k6::launch_sgemm_warp_tiling(M, N, K, alpha, d_A, d_B, beta, d_C);
             break;
+        case 7:
+            k7::launch_sgemm_2d_block_tiling_cute(M, N, K, alpha, d_A, d_B, beta, d_C);
         default:
             std::cout << "Invalid kernel index" << std::endl;
             break;

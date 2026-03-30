@@ -5,7 +5,7 @@ CFLAGS=-O3 -lineinfo -arch=$(CUDA_ARCH)
 all: launch
 
 launch: launch.cu
-	$(CC) $(CFLAGS) -o build/launch launch.cu -lcublas
+	$(CC) $(CFLAGS) -o build/launch launch.cu -lcublas -I./cutlass/include
 
 clean:
 	rm -f build/launch
