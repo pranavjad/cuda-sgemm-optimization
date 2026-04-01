@@ -37,7 +37,7 @@ __global__ void sgemm_2d_block_tiling_cute(
     // tiler = shape of one tile
     // coord = logical coordinates of the tile
     // proj = which dimensions of the tile we care about
-    auto block_coord = make_coord(blockIdx.x, blockIdx.y, _);
+    auto block_coord = make_coord(blockIdx.y, blockIdx.x, _);
     Tensor gA = local_tile(mA, block_tiler, block_coord, Step<_1, X, _1>{}); // (BM, BK, K/BK) <-- this view contains all tiles
     Tensor gB = local_tile(mB, block_tiler, block_coord, Step<X, _1, _1>{});
     Tensor gC = local_tile(mC, block_tiler, block_coord, Step<_1, _1, X>{});
