@@ -12,7 +12,7 @@
 #include "cutlass/util/helper_cuda.hpp"
 
 namespace k7 {
-template <class BlockTiler,
+template <class ATiler, class BTiler, class CTiler,
           class AStride, class ASmemLayout, class AThreadLayout,
           class BStride, class BSmemLayout, class BThreadLayout,
           class CStride, class CThreadLayout
@@ -21,7 +21,7 @@ __global__ void sgemm_2d_block_tiling_cute(
     int M, int N, int K,
     float alpha, const float *A, const float *B, float beta, float *C,
     AStride A_strides, BStride B_strides, CStride C_strides,
-    BlockTiler block_tiler,
+    ATiler A_tiler, BTiler B_tiler, CTiler C_tiler,
     ASmemLayout A_shared_layout, BSmemLayout B_shared_layout,
     AThreadLayout A_thread_layout, BThreadLayout B_thread_layout, CThreadLayout C_thread_layout
 ) {
@@ -37,10 +37,18 @@ __global__ void sgemm_2d_block_tiling_cute(
     // tiler = shape of one tile
     // coord = logical coordinates of the tile
     // proj = which dimensions of the tile we care about
-    auto block_coord = make_coord(blockIdx.y, blockIdx.x, _);
-    Tensor gA = local_tile(mA, block_tiler, block_coord, Step<_1, X, _1>{}); // (BM, BK, K/BK) <-- this view contains all tiles
-    Tensor gB = local_tile(mB, block_tiler, block_coord, Step<X, _1, _1>{});
-    Tensor gC = local_tile(mC, block_tiler, block_coord, Step<_1, _1, X>{});
+    // behavior: splits the tensor into ((tileX, tileY), (gridX, gridY)) and lets you index into the grid to grab a tile
+    Tensor gA = local_tile(mA, A_tiler, make_coord(blockIdx.y, _)); // (BM, BK, k)
+    Tensor gB = local_tile(mB, B_tiler, make_coord(_, blockIdx.x)); // (BK, BN, k)
+    Tensor gC = local_tile(mC, C_tiler, make_coord(blockIdx.y, blockIdx.x)); // (BM, BN)
+    // if (thread0()) {
+    //     printf("shape(gA)=");
+    //     print(shape(gA));
+    //     printf("\n");
+    //     printf("shape(gB)=");
+    //     print(shape(gB));
+    //     printf("\n");
+    // }
 
     // shared memory buffers
     __shared__ float A_smem[cosize_v<ASmemLayout>];
@@ -54,17 +62,27 @@ __global__ void sgemm_2d_block_tiling_cute(
     // local partition: split a Tensor according to some layout, and give thread x's part.
     Tensor gA_to_r = local_partition(gA, A_thread_layout, threadIdx.x);
     Tensor sA_to_w = local_partition(sA, A_thread_layout, threadIdx.x);
-
+    // if (thread0()) {
+    //     printf("shape(gA_to_r)=");
+    //     print(shape(gA_to_r));
+    //     printf("\n");
+    // }
     Tensor gB_to_r = local_partition(gB, B_thread_layout, threadIdx.x);
     Tensor sB_to_w = local_partition(sB, B_thread_layout, threadIdx.x);
 
     // create Tensors for the chunk of A_shared this thread reads for computation
     // Step<_1, X>{} indicates that we want to split up sA by the num of rows in C_thread_layout
-    Tensor sA_to_r = local_partition(sA, C_thread_layout, threadIdx.x, Step<_1, X>{});
-    Tensor sB_to_r = local_partition(sB, C_thread_layout, threadIdx.x, Step<X,_1>{});
+    Tensor sA_to_r = local_partition(sA, A_thread_layout, threadIdx.x, Step<_1, X>{});
+    Tensor sB_to_r = local_partition(sB, make_layout(make_shape(1, 8), make_stride(1, 8)), threadIdx.x);
 
     // create Tensor for the chunk of C_global this thread writes
     Tensor gC_to_w = local_partition(gC, C_thread_layout, threadIdx.x, Step<_1, _1>{});
+
+    // if (thread0()) {
+    //     printf("shape(sA_)=");
+    //     print(shape(sA));
+    //     printf("\n");
+    // }
 
     // create register array for thread results and zero it
     Tensor thread_results = make_tensor_like(gC_to_w);
@@ -72,6 +90,10 @@ __global__ void sgemm_2d_block_tiling_cute(
 
     // slide the blocktile over K
     auto K_TILE_MAX = size<2>(gA_to_r);
+    // if(thread0()) {
+    //     printf("gA_to_r size<2>=");
+    //     print(size<2>(gA_to_r));
+    // }
     for (int k_tile = 0; k_tile < K_TILE_MAX; k_tile++) {
         // load gmem --> smem
         Tensor gA_tile = gA_to_r(_, _, k_tile); // grab the tile
@@ -132,7 +154,10 @@ void launch_sgemm_2d_block_tiling_cute(
     auto BM = Int<64>{};
     auto BN = Int<64>{};
     auto BK = Int<8>{};
-    auto block_tiler = make_shape(BM, BN, BK);
+    // auto block_tiler = make_shape(BM, BN, BK);
+    auto A_tiler = make_shape(BM, BK);
+    auto B_tiler = make_shape(BK, BN);
+    auto C_tiler = make_shape(BM, BN);
 
     // define smem layouts
     // maps coords in (BM, BK) --> 1d offset in smem buffer
@@ -151,7 +176,7 @@ void launch_sgemm_2d_block_tiling_cute(
     sgemm_2d_block_tiling_cute<<<grid, block>>>(
         M, N, K, alpha, d_A, d_B, beta, d_C,
         A_strides, B_strides, C_strides,
-        block_tiler,
+        A_tiler, B_tiler, C_tiler,
         A_shared_layout, B_shared_layout,
         A_thread_layout, B_thread_layout, C_thread_layout
     );
