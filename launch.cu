@@ -45,6 +45,9 @@ void launch_sgemm(int kernel_idx, int M, int N, int K, float alpha, float* d_A, 
         case 8:
             k8::launch_sgemm_2d_block_tiling_cute(M, N, K, alpha, d_A, d_B, beta, d_C);
             break;
+        case 9:
+            k9::launch_sgemm_2d_block_tiling_vec_cute(M, N, K, alpha, d_A, d_B, beta, d_C);
+            break;
         default:
             std::cout << "Invalid kernel index" << std::endl;
             break;
@@ -154,7 +157,7 @@ int main(int argc, char* argv[]) {
         C[i] = (float)rand() / RAND_MAX;
     }
     if (kernel_idx == -1) {
-        for (int i = 1; i <= 8; i++) {
+        for (int i = 1; i <= 9; i++) {
             verify_and_benchmark(i, M, N, K, alpha, beta, A.data(), B.data(), C.data());
         }
     } else {
