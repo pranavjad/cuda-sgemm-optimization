@@ -7,4 +7,5 @@
 #include "kernels/07_cute_matmul.cu"
 #include "kernels/08_block_tiling_2d_cute.cu"
 #include "kernels/09_block_tiling_2d_vec_cute.cu"
+#include "kernels/10_warp_tiling_cute.cu"
 
