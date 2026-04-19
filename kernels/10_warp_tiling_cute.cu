@@ -64,14 +64,14 @@ __global__ void sgemm_warp_tiling_cute(
     using Element = float;
     using CopyOp = UniversalCopy<uint_byte_t<16>>;
     using CopyAtom = Copy_Atom<CopyOp, Element>;
-    auto A_thr_layout = make_layout(make_shape(Int<32>{}, Int<4>{}));
+    auto A_thr_layout = make_layout(make_shape(Int<32>{}, Int<4>{}), LayoutRight{});
     auto A_val_layout = make_layout(make_shape(Int<1>{}, Int<4>{}));
     auto A_tiled_copy = make_tiled_copy(CopyAtom{}, A_thr_layout, A_val_layout);
     auto A_thr_copy = A_tiled_copy.get_thread_slice(threadIdx.x);
     auto A_thr_coord = A_thr_layout.get_flat_coord(threadIdx.x);
     
     // set up gB to sB copy
-    auto B_thr_layout = make_layout(make_shape(Int<4>{}, Int<32>{}));
+    auto B_thr_layout = make_layout(make_shape(Int<4>{}, Int<32>{}), LayoutRight{});
     auto B_val_layout = make_layout(make_shape(Int<1>{}, Int<4>{}));
     auto B_tiled_copy = make_tiled_copy(CopyAtom{}, B_thr_layout, B_val_layout);
     auto B_thr_copy = B_tiled_copy.get_thread_slice(threadIdx.x);
