@@ -66,17 +66,15 @@ __global__ void sgemm_warp_tiling_cute(
     using CopyAtom = Copy_Atom<CopyOp, Element>;
     auto A_thr_layout = make_layout(make_shape(Int<64>{}, Int<2>{}));
     auto A_val_layout = make_layout(make_shape(Int<1>{}, Int<4>{}));
-    auto A_tiled_copy = make_tiled_copy(CopyAtom{}, thr_layout, val_layout);
-    auto A_thr_copy = tiled_copy.get_thread_slice(threadIdx.x);
+    auto A_tiled_copy = make_tiled_copy(CopyAtom{}, A_thr_layout, A_val_layout);
+    auto A_thr_copy = A_tiled_copy.get_thread_slice(threadIdx.x);
+    auto A_thr_coord = A_thr_layout.get_flat_coord(threadIdx.x);
     
     // set up gB to sB copy
-    using Element = float;
-    using CopyOp = UniversalCopy<uint_byte_t<16>>;
-    using CopyAtom = Copy_Atom<CopyOp, Element>;
-    auto B_thr_layout = make_layout(make_shape(Int<16>{}, Int<32>{}));
+    auto B_thr_layout = make_layout(make_shape(Int<4>{}, Int<32>{}));
     auto B_val_layout = make_layout(make_shape(Int<1>{}, Int<4>{}));
-    auto B_tiled_copy = make_tiled_copy(CopyAtom{}, thr_layout, val_layout);
-    auto B_thr_copy = tiled_copy.get_thread_slice(threadIdx.x);
+    auto B_tiled_copy = make_tiled_copy(CopyAtom{}, B_thr_layout, B_val_layout);
+    auto B_thr_copy = B_tiled_copy.get_thread_slice(threadIdx.x);
 
     // part of sA, sB each thread loads for computation
     auto A_col_shape = make_shape(1, TM);
@@ -102,24 +100,29 @@ __global__ void sgemm_warp_tiling_cute(
     clear(regN);
 
     auto max_tile_idx = shape<2>(gA);
-    const uint stride_A = NUM_THREADS / (BK / 4);
-    const uint stride_B = NUM_THREADS / (BN / 4);
     for (int tile_idx = 0; tile_idx < max_tile_idx; tile_idx++) {
         // load tiles
 
         Tensor gA_tile = gA(_, _, tile_idx);
-        auto thr_src = A_thr_copy.partition_S(gA_tile);
-        auto thr_dst = A_thr_copy.partition_D(sA);
-        auto frag = make_fragment_like(thr_dst);
-        copy(tiled_copy, thr_src, frag);
-        copy(tiled_copy, frag, thr_dst);
+        auto A_thr_src = A_thr_copy.partition_S(gA_tile); // ((1, 4), (2, 1)) each thread does 2 vectorized loads
+        auto A_frag = make_fragment_like(A_thr_src);
+        copy(A_tiled_copy, A_thr_src, A_frag);
+        CUTE_UNROLL
+        for (int rest_m = 0; rest_m < size<1>(A_frag); rest_m++) {
+            Tensor sA_to_w = local_tile(
+                sA,
+                make_shape(Int<4>{}, Int<1>{}),
+                make_coord(get<1>(A_thr_coord), get<0>(A_thr_coord) + rest_m * size<0>(A_thr_layout)));
+            CUTE_UNROLL
+            for (int v = 0; v < size<0,0>(A_frag); v++) {
+                sA_to_w(v) = A_frag(make_coord(v, Int<0>{}), rest_m, Int<0>{});
+            }
+        }
         
         Tensor gB_tile = gB(_, _, tile_idx);
-        auto thr_src = B_thr_copy.partition_S(gB_tile);
-        auto thr_dst = B_thr_copy.partition_D(sB);
-        auto frag = make_fragment_like(thr_dst);
-        copy(tiled_copy, thr_src, frag);
-        copy(tiled_copy, frag, thr_dst);
+        auto B_thr_src = B_thr_copy.partition_S(gB_tile);
+        auto B_thr_dst = B_thr_copy.partition_D(sB);
+        copy(B_tiled_copy, B_thr_src, B_thr_dst);
 
         __syncthreads();
 
