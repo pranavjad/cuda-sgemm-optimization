@@ -18,7 +18,7 @@ using VecType = uint_bit_t<128>;
 static constexpr auto WARPSIZE = Int<32>{};
 static constexpr auto BM = Int<128>{};
 static constexpr auto BN = Int<128>{};
-static constexpr auto BK = Int<8>{};
+static constexpr auto BK = Int<16>{};
 static constexpr auto TM = Int<8>{};
 static constexpr auto TN = Int<4>{};
 static constexpr auto WM = Int<64>{};
@@ -64,7 +64,7 @@ __global__ void sgemm_warp_tiling_cute(
     using Element = float;
     using CopyOp = UniversalCopy<uint_byte_t<16>>;
     using CopyAtom = Copy_Atom<CopyOp, Element>;
-    auto A_thr_layout = make_layout(make_shape(Int<64>{}, Int<2>{}));
+    auto A_thr_layout = make_layout(make_shape(Int<32>{}, Int<4>{}));
     auto A_val_layout = make_layout(make_shape(Int<1>{}, Int<4>{}));
     auto A_tiled_copy = make_tiled_copy(CopyAtom{}, A_thr_layout, A_val_layout);
     auto A_thr_copy = A_tiled_copy.get_thread_slice(threadIdx.x);
@@ -76,18 +76,26 @@ __global__ void sgemm_warp_tiling_cute(
     auto B_tiled_copy = make_tiled_copy(CopyAtom{}, B_thr_layout, B_val_layout);
     auto B_thr_copy = B_tiled_copy.get_thread_slice(threadIdx.x);
 
-    // part of sA, sB each thread loads for computation
-    auto A_col_shape = make_shape(1, TM);
-    auto B_row_shape = make_shape(1, TN);
-    Tensor sA_threadtile_cols = zipped_divide(sA, A_col_shape); // ((1, TM), (BK, BM / TM)
-    Tensor sB_threadtile_rows = zipped_divide(sB, B_row_shape); // ((1, TN), (BK, BN / TN)
-   
-    // part of gC each thread should write
+    // part of sA, sB we touch according to warp tile
     const uint warp_idx = threadIdx.x / WARPSIZE;
     const uint warp_row = warp_idx / (BN / WN);
     const uint warp_col = warp_idx % (BN / WN);
+    const uint thread_id_warp = threadIdx.x % WARPSIZE;
+    const uint thread_row_subtile = thread_id_warp / (WSUBN / TN);
+    const uint thread_col_subtile = thread_id_warp % (WSUBN / TN);
+    Tensor sA_warp = local_tile(sA, make_shape(BK, WM), make_coord(0, warp_row));
+    Tensor sB_warp = local_tile(sB, make_shape(BK, WN), make_coord(0, warp_col));
+
+
+    // part of sA, sB each thread loads for computation
+    auto A_col_shape = make_shape(Int<1>{}, TM);
+    auto B_row_shape = make_shape(Int<1>{}, TN);
+    Tensor sA_threadtile_cols = zipped_divide(sA_warp, A_col_shape); // ((1, 4), (16, 16))
+    Tensor sB_threadtile_rows = zipped_divide(sB_warp, B_row_shape);
+   
+    // part of gC each thread should write
     Tensor gC_warptile = local_tile(gC, make_shape(WM, WN), make_coord(warp_row, warp_col));
-    Tensor gC_threadtiles = zipped_divide(gC_warptile, C_thread_layout);
+    Tensor gC_threadtiles = zipped_divide(gC_warptile, shape(C_thread_layout));
 
     // registers
     Tensor regM = make_tensor_like<float>(make_layout(make_shape(TM, WMITER)));
@@ -109,13 +117,18 @@ __global__ void sgemm_warp_tiling_cute(
         copy(A_tiled_copy, A_thr_src, A_frag);
         CUTE_UNROLL
         for (int rest_m = 0; rest_m < size<1>(A_frag); rest_m++) {
-            Tensor sA_to_w = local_tile(
-                sA,
-                make_shape(Int<4>{}, Int<1>{}),
-                make_coord(get<1>(A_thr_coord), get<0>(A_thr_coord) + rest_m * size<0>(A_thr_layout)));
             CUTE_UNROLL
-            for (int v = 0; v < size<0,0>(A_frag); v++) {
-                sA_to_w(v) = A_frag(make_coord(v, Int<0>{}), rest_m, Int<0>{});
+            for (int rest_k = 0; rest_k < size<2>(A_frag); rest_k++) {
+                auto vec_coord = A_thr_layout.get_flat_coord(threadIdx.x);
+                Tensor sA_to_w = local_tile(
+                    sA,
+                    make_shape(Int<4>{}, Int<1>{}),
+                    make_coord(get<1>(vec_coord), get<0>(vec_coord) + rest_m * size<0>(A_thr_layout))
+                );
+                CUTE_UNROLL
+                for (int v = 0; v < size<0,0>(A_frag); v++) {
+                    sA_to_w(v) = A_frag(make_coord(v, Int<0>{}), rest_m, rest_k);
+                }
             }
         }
         
@@ -131,11 +144,15 @@ __global__ void sgemm_warp_tiling_cute(
         for (int dot_idx = 0; dot_idx < BK; dot_idx++) {
             // smem to rmem
             for (int subtile_row = 0; subtile_row < WMITER; subtile_row++) {
-                Tensor sA_to_r = sA_threadtile_cols(_, make_coord(dot_idx, subtile_row * WSUBM));
+                Tensor sA_to_r = sA_threadtile_cols(_, make_coord(
+                    dot_idx,
+                    subtile_row * (WSUBM / TM) + thread_row_subtile));
                 copy(sA_to_r, regM(_, subtile_row));
             }
             for (int subtile_col = 0; subtile_col < WNITER; subtile_col++) {
-                Tensor sB_to_r = sB_threadtile_rows(_, make_coord(dot_idx, subtile_col * WSUBN));
+                Tensor sB_to_r = sB_threadtile_rows(_, make_coord(
+                    dot_idx,
+                    subtile_col * (WSUBN / TN) + thread_col_subtile));
                 copy(sB_to_r, regN(_, subtile_col));
             }
 
@@ -161,14 +178,18 @@ __global__ void sgemm_warp_tiling_cute(
     // write the results
     for (uint subtile_row = 0; subtile_row < WMITER; subtile_row++) {
         for (uint subtile_col = 0; subtile_col < WNITER; subtile_col++) {
-            auto threadtile = gC_threadtiles(make_coord(_, _), make_coord(subtile_row * WSUBM, subtile_col * WSUBN));
+            auto threadtile = gC_threadtiles(make_coord(_, _), make_coord(
+                subtile_row * (WSUBM / TM) + thread_row_subtile,
+                subtile_col * (WSUBN / TN) + thread_col_subtile));
             for (uint i = 0; i < TM; i++) {
                 for (uint j = 0; j < TN; j += 4) {
                     Tensor tmp = make_tensor<float>(make_shape(Int<1>{}, Int<4>{}));
                     Tensor dst = local_tile(threadtile, make_shape(Int<1>{}, Int<4>{}), make_coord(i, j / 4));
                     CUTE_UNROLL
                     for (int k = 0; k < size(tmp); k++) {
-                        tmp(k) = alpha * thread_results(i, j + k) + beta * dst(k);
+                        tmp(k) = alpha * thread_results(
+                            make_coord(make_coord(i, j + k), make_coord(subtile_row, subtile_col))
+                        ) + beta * dst(k);
                     }
                     copy_aligned(tmp, dst);
                 }
