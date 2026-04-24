@@ -69,6 +69,7 @@ __global__ void sgemm_warp_tiling_cute(
     auto A_tiled_copy = make_tiled_copy(CopyAtom{}, A_thr_layout, A_val_layout);
     auto A_thr_copy = A_tiled_copy.get_thread_slice(threadIdx.x);
     auto A_thr_coord = A_thr_layout.get_flat_coord(threadIdx.x);
+    auto A_vec_coord = A_thr_layout.get_flat_coord(threadIdx.x);
     
     // set up gB to sB copy
     auto B_thr_layout = make_layout(make_shape(Int<4>{}, Int<32>{}), LayoutRight{});
@@ -83,8 +84,8 @@ __global__ void sgemm_warp_tiling_cute(
     const uint thread_id_warp = threadIdx.x % WARPSIZE;
     const uint thread_row_subtile = thread_id_warp / (WSUBN / TN);
     const uint thread_col_subtile = thread_id_warp % (WSUBN / TN);
-    Tensor sA_warp = local_tile(sA, make_shape(BK, WM), make_coord(0, warp_row));
-    Tensor sB_warp = local_tile(sB, make_shape(BK, WN), make_coord(0, warp_col));
+    Tensor sA_warp = local_tile(sA, make_shape(BK, WM), make_coord(Int<0>{}, warp_row));
+    Tensor sB_warp = local_tile(sB, make_shape(BK, WN), make_coord(Int<0>{}, warp_col));
 
 
     // part of sA, sB each thread loads for computation
@@ -112,18 +113,17 @@ __global__ void sgemm_warp_tiling_cute(
         // load tiles
 
         Tensor gA_tile = gA(_, _, tile_idx);
-        auto A_thr_src = A_thr_copy.partition_S(gA_tile); // ((1, 4), (2, 1)) each thread does 2 vectorized loads
+        auto A_thr_src = A_thr_copy.partition_S(gA_tile); // ((4, 1), 4, 1) each thread does 4 vectorized loads
         auto A_frag = make_fragment_like(A_thr_src);
         copy(A_tiled_copy, A_thr_src, A_frag);
         CUTE_UNROLL
-        for (int rest_m = 0; rest_m < size<1>(A_frag); rest_m++) {
+        for (int rest_m = 0; rest_m < size<1>(A_frag); rest_m++) { // size<1>(A_frag) = 4
             CUTE_UNROLL
-            for (int rest_k = 0; rest_k < size<2>(A_frag); rest_k++) {
-                auto vec_coord = A_thr_layout.get_flat_coord(threadIdx.x);
+            for (int rest_k = 0; rest_k < size<2>(A_frag); rest_k++) { // size<2>(A_frag) = 1
                 Tensor sA_to_w = local_tile(
                     sA,
                     make_shape(Int<4>{}, Int<1>{}),
-                    make_coord(get<1>(vec_coord), get<0>(vec_coord) + rest_m * size<0>(A_thr_layout))
+                    make_coord(get<1>(A_vec_coord), get<0>(A_vec_coord) + rest_m * size<0>(A_thr_layout))
                 );
                 CUTE_UNROLL
                 for (int v = 0; v < size<0,0>(A_frag); v++) {
@@ -143,12 +143,15 @@ __global__ void sgemm_warp_tiling_cute(
         CUTE_UNROLL
         for (int dot_idx = 0; dot_idx < BK; dot_idx++) {
             // smem to rmem
+            CUTE_UNROLL
             for (int subtile_row = 0; subtile_row < WMITER; subtile_row++) {
                 Tensor sA_to_r = sA_threadtile_cols(_, make_coord(
                     dot_idx,
                     subtile_row * (WSUBM / TM) + thread_row_subtile));
                 copy(sA_to_r, regM(_, subtile_row));
             }
+
+            CUTE_UNROLL
             for (int subtile_col = 0; subtile_col < WNITER; subtile_col++) {
                 Tensor sB_to_r = sB_threadtile_rows(_, make_coord(
                     dot_idx,
@@ -157,9 +160,13 @@ __global__ void sgemm_warp_tiling_cute(
             }
 
             // matmul
+            CUTE_UNROLL
             for (int subtile_row = 0; subtile_row < WMITER; subtile_row++) {
+                CUTE_UNROLL
                 for (int subtile_col = 0; subtile_col < WNITER; subtile_col++) {
+                    CUTE_UNROLL
                     for (int i = 0; i < TM; i++) {
+                        CUTE_UNROLL
                         for (int j = 0; j < TN; j++) {
                             thread_results(
                                 make_coord(make_coord(i, j),
@@ -176,12 +183,16 @@ __global__ void sgemm_warp_tiling_cute(
     }
 
     // write the results
+    CUTE_UNROLL
     for (uint subtile_row = 0; subtile_row < WMITER; subtile_row++) {
+        CUTE_UNROLL
         for (uint subtile_col = 0; subtile_col < WNITER; subtile_col++) {
             auto threadtile = gC_threadtiles(make_coord(_, _), make_coord(
                 subtile_row * (WSUBM / TM) + thread_row_subtile,
                 subtile_col * (WSUBN / TN) + thread_col_subtile));
+            CUTE_UNROLL
             for (uint i = 0; i < TM; i++) {
+                CUTE_UNROLL
                 for (uint j = 0; j < TN; j += 4) {
                     Tensor tmp = make_tensor<float>(make_shape(Int<1>{}, Int<4>{}));
                     Tensor dst = local_tile(threadtile, make_shape(Int<1>{}, Int<4>{}), make_coord(i, j / 4));
