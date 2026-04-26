@@ -424,4 +424,6 @@ Then within `gC` we further tile into the threadtiles, to finally extract this t
 (<red>threadRow * TM</red> <green> + resIdxM </green>) * N + <red>threadCol * TN</red> <green> + resIdxN </green>
 ```
 <red> these two multiplies </red> (color code in final article). Finally we loop over the threadtile with nice 2d indexing, which in Simon's kernel is handled by the <green> these adds </green>.
-And that is the entire matmul kernel.
+
+## Conclusion (for now)
+I'm releasing these blogposts as a multipart series to hold myself accountable, rather then trying to write one huge post and kicking the can down the road. Next post I'll be diving in to some of the more optimized kernels in Simon's article. Implementing Simon's kernel 6 (the vectorized loads kernel), we will dig into some of the library internals to see how the `copy` macro automatically handles vectorization when possible. Implementing kernel 7 (warp tiling) we will see more features of cute including advanced copying and gain a deeper understanding of the framework by attempting to write the exact same access/computation patterns as Simon's kernel with CuTe idioms.
