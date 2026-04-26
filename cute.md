@@ -1,15 +1,10 @@
-# Optimizing a MatMul with CuTe
+# Optimizing a MatMul with CuTe - Part 1
 
 If you like CUDA kernels, you may be aware of the [canonical blogpost](https://siboehm.com/articles/22/CUDA-MMM) by Simon Boemh in which he iteratively optimizes a matrix multiplication kernel. In this post, I implement these kernels using [CuTe](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/00_quickstart.html) which is a header only library with useful primitives for expressing tensor layouts and indexing. The CuTe docs are great, but I found myself struggling to understand the inner workings and design choices of CuTe until I implemented Simon's kernels in CuTe. I found that forcing myself to implement Simon's kernels down to the same access/computation pattern but using CuTe's idioms helped me deeply understand the framework, and this post is an attempt to distill and convey that.
 
 My goal with this article is not to explain the matmuls themselves, Simon's article already does a great job at that. Rather, I will go through a few of the most important optimizations and how they would be implemented using CuTe which is sufficient to showcase the framework and learn its core concepts.
 
-## Table of Contents
-
-1. Preliminaries
-2. 2D blocktiling
-3. 2D blocktiling with vectorized loads
-4. Warp tiling
+In this first post we will write Simon's [2D blocktiling kernel](https://github.com/siboehm/SGEMM_CUDA/blob/master/src/kernels/5_kernel_2D_blocktiling.cuh) with CuTe.
 
 ## Preliminaries
 
