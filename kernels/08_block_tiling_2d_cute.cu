@@ -12,41 +12,48 @@
 #include "cutlass/util/helper_cuda.hpp"
 
 namespace k8 {
+using namespace cute;
+static constexpr auto BM = Int<64>{};
+static constexpr auto BN = Int<64>{};
+static constexpr auto BK = Int<8>{};
+static constexpr auto TM = Int<8>{};
+static constexpr auto TN = Int<8>{};
 
 
-
-template <class ATiler, class BTiler, class CTiler,
-          class AStride, class ASmemLayout, class AThreadLayout,
-          class BStride, class BSmemLayout, class BThreadLayout,
-          class CStride, class CThreadLayout
-          >
 __global__ void sgemm_2d_block_tiling_cute(
     int M, int N, int K,
-    float alpha, const float *A, const float *B, float beta, float *C,
-    AStride A_strides, BStride B_strides, CStride C_strides,
-    ATiler A_tiler, BTiler B_tiler, CTiler C_tiler,
-    ASmemLayout A_shared_layout, BSmemLayout B_shared_layout,
-    AThreadLayout A_thread_layout, BThreadLayout B_thread_layout, CThreadLayout C_thread_layout
+    float alpha, const float *A, const float *B, float beta, float *C
 ) {
     using namespace cute;
 
     // create Tensors from data + Layout
-    Tensor mA = make_tensor(make_gmem_ptr(A), make_shape(M, K), A_strides);
-    Tensor mB = make_tensor(make_gmem_ptr(B), make_shape(K, N), B_strides);
-    Tensor mC = make_tensor(make_gmem_ptr(C), make_shape(M, N), C_strides);
+    auto A_gmem_layout = make_layout(make_shape(M, K), LayoutRight{});
+    auto B_gmem_layout = make_layout(make_shape(K, N), LayoutRight{});
+    auto C_gmem_layout = make_layout(make_shape(M, N), LayoutRight{});
+    Tensor mA = make_tensor(make_gmem_ptr(A), A_gmem_layout);
+    Tensor mB = make_tensor(make_gmem_ptr(B), B_gmem_layout);
+    Tensor mC = make_tensor(make_gmem_ptr(C), C_gmem_layout);
 
     // global tiles
-    Tensor gA = local_tile(mA, A_tiler, make_coord(blockIdx.y, _)); // (BM, BK, k)
-    Tensor gB = local_tile(mB, B_tiler, make_coord(_, blockIdx.x)); // (BK, BN, k)
-    Tensor gC = local_tile(mC, C_tiler, make_coord(blockIdx.y, blockIdx.x)); // (BM, BN)
+    auto A_blocktile = make_shape(BM, BK);
+    auto B_blocktile = make_shape(BK, BN);
+    auto C_blocktile = make_shape(BM, BN);
+    Tensor gA = local_tile(mA, A_blocktile, make_coord(blockIdx.y, _)); // (BM, BK, k)
+    Tensor gB = local_tile(mB, B_blocktile, make_coord(_, blockIdx.x)); // (BK, BN, k)
+    Tensor gC = local_tile(mC, C_blocktile, make_coord(blockIdx.y, blockIdx.x)); // (BM, BN)
 
     // shared tiles
-    __shared__ float A_smem[cosize_v<ASmemLayout>];
-    __shared__ float B_smem[cosize_v<BSmemLayout>];
-    Tensor sA = make_tensor(make_smem_ptr(A_smem), A_shared_layout);
-    Tensor sB = make_tensor(make_smem_ptr(B_smem), B_shared_layout);
+    auto A_smem_layout = make_layout(A_blocktile, LayoutRight{});
+    auto B_smem_layout = make_layout(B_blocktile, LayoutRight{});
+    __shared__ float A_smem[cosize_v<decltype(A_smem_layout)>];
+    __shared__ float B_smem[cosize_v<decltype(B_smem_layout)>];
+    Tensor sA = make_tensor(make_smem_ptr(A_smem), A_smem_layout);
+    Tensor sB = make_tensor(make_smem_ptr(B_smem), B_smem_layout);
 
     // part of gA each thread loads to sA
+    auto A_thread_layout = make_layout(make_shape(Int<8>{}, Int<8>{}), LayoutRight{});
+    auto B_thread_layout = make_layout(make_shape(Int<1>{}, Int<64>{}), LayoutRight{});
+    auto C_thread_layout = make_layout(make_shape(Int<8>{}, Int<8>{})); 
     Tensor gA_to_r = local_partition(gA, A_thread_layout, threadIdx.x);
     Tensor sA_to_w = local_partition(sA, A_thread_layout, threadIdx.x);
 
@@ -55,20 +62,12 @@ __global__ void sgemm_2d_block_tiling_cute(
     Tensor sB_to_w = local_partition(sB, B_thread_layout, threadIdx.x);
 
     // part of sA, sB each thread reads for computation
-    auto BN = shape<1>(C_tiler);
-    auto TM = shape<0>(C_thread_layout);
-    auto TN = shape<1>(C_thread_layout);
     auto thread_row_C = threadIdx.x / (BN / TN);
     auto thread_col_C = threadIdx.x % (BN / TN);
     auto A_col_shape = make_shape(TM, 1);
     auto B_row_shape = make_shape(1, TN);
     Tensor sA_to_r = local_tile(sA, A_col_shape, make_coord(thread_row_C, _)); // (TM, 1, BK)
     Tensor sB_to_r = local_tile(sB, B_row_shape, make_coord(_, thread_col_C)); // (1, TN, BK)
-
-    // if(thread0()) {
-    //     print(sA_to_r);
-    //     print(sB_to_r);
-    // }
 
     // part of gC each thread writes results
     Tensor gC_to_w = local_tile(gC, shape(C_thread_layout), make_coord(thread_row_C, thread_col_C)); // (TM, TN)
@@ -143,40 +142,11 @@ void launch_sgemm_2d_block_tiling_cute(
     auto M = int(m);
     auto N = int(n);
     auto K = int(k);
-    // define strides of A, B, C
-    auto A_strides = make_stride(K, Int<1>{});
-    auto B_strides = make_stride(N, Int<1>{});
-    auto C_strides = make_stride(N, Int<1>{});
-
-    // define blocktile size
-    auto BM = Int<64>{};
-    auto BN = Int<64>{};
-    auto BK = Int<8>{};
-    // auto block_tiler = make_shape(BM, BN, BK);
-    auto A_tiler = make_shape(BM, BK);
-    auto B_tiler = make_shape(BK, BN);
-    auto C_tiler = make_shape(BM, BN);
-
-    // define smem layouts
-    // maps coords in (BM, BK) --> 1d offset in smem buffer
-    auto A_shared_layout = make_layout(make_shape(BM, BK), LayoutRight{});
-    auto B_shared_layout = make_layout(make_shape(BK, BN), LayoutRight{});
-
-    // define thread layouts
-    // maps coords in (BM, BK) --> thread index that loads it
-    auto A_thread_layout = make_layout(make_shape(Int<8>{}, Int<8>{}), LayoutRight{});
-    auto B_thread_layout = make_layout(make_shape(Int<1>{}, Int<64>{}), LayoutRight{});
-    auto C_thread_layout = make_layout(make_shape(Int<8>{}, Int<8>{}));
-
     dim3 grid(ceil_div(N, BN), ceil_div(M, BM));
     dim3 block(8 * 8);
 
     sgemm_2d_block_tiling_cute<<<grid, block>>>(
-        M, N, K, alpha, d_A, d_B, beta, d_C,
-        A_strides, B_strides, C_strides,
-        A_tiler, B_tiler, C_tiler,
-        A_shared_layout, B_shared_layout,
-        A_thread_layout, B_thread_layout, C_thread_layout
+        M, N, K, alpha, d_A, d_B, beta, d_C
     );
 }
 
